@@ -13,11 +13,13 @@ import os
 from pathlib import Path
 
 # Import our custom components
-from Model.Segforest.Segforest import Segforest
+# from Model.Segforest.Segforest import Segforest
+# CustomSegformer
+from Model.model import CustomSegformer
 from Model.loss import FocalLoss2d, cross_entropy
 from Model.metric import compute_metrics
-from Dataset.LoveDa import TiledAerialDataset, ForestBinaryTransform
-from Dataset.LoveDa.create_precise_balanced_dataset import PreciseBalancedDataset
+from Dataset.LoveDa_Dataloader import TiledAerialDataset, ForestBinaryTransform
+from Dataset.LoveDa_Dataloader.create_precise_balanced_dataset import PreciseBalancedDataset
 
 
 class SegformerTrainer(Trainer):
@@ -42,8 +44,8 @@ class SegformerTrainer(Trainer):
         
         # Forward pass
         outputs = model(inputs["pixel_values"])
-        # Segforest returns a list of outputs, use the first one (highest resolution)
-        logits = outputs[0] if isinstance(outputs, list) else outputs
+        # CustomSegformer returns a tuple (logits, softmax), use the first one
+        logits = outputs[0] if isinstance(outputs, tuple) else outputs
         
         # Compute loss
         loss = self.loss_fn(logits, labels)
@@ -56,7 +58,7 @@ class SegformerTrainer(Trainer):
         
         with torch.no_grad():
             outputs = model(inputs["pixel_values"])
-            logits = outputs[0]
+            logits = outputs[0] if isinstance(outputs, tuple) else outputs
             
             if prediction_loss_only:
                 loss = self.compute_loss(model, inputs)
@@ -147,13 +149,11 @@ def main():
     train_dataset, val_dataset = create_datasets()
     
     # Create model
-    print("Creating Segforest model with pretrained encoder...")
-    model = Segforest(
-        img_size=512,
-        in_chans=3,        # RGB
+    print("Creating Custom Segformer model...")
+    model = CustomSegformer(
+        input_channels=3,  # RGB
         num_classes=2,     # Binary: forest/background
-        pretrained_model_name="nvidia/mit-b4",
-        freeze_encoder=False  # Allow fine-tuning
+        base_model='nvidia/mit-b4'
     )
     model.to(device)
     

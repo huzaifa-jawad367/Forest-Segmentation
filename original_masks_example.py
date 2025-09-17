@@ -6,7 +6,7 @@ import torch
 import matplotlib.pyplot as plt
 import numpy as np
 import random
-from Dataset.LoveDa.tiled_dataset import TiledAerialDataset
+from Dataset.LoveDa_Dataloader.tiled_dataset import TiledAerialDataset
 
 
 def visualize_original_masks(dataset, num_samples=15, samples_per_plot=3, title_prefix="Sample"):

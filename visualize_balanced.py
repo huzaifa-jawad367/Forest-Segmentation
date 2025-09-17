@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 import torch
-from Dataset.LoveDa import TiledAerialDataset, ForestBinaryTransform
-from Dataset.LoveDa.create_precise_balanced_dataset import PreciseBalancedDataset
+from Dataset.LoveDa_Dataloader import TiledAerialDataset, ForestBinaryTransform
+from Dataset.LoveDa_Dataloader.create_precise_balanced_dataset import PreciseBalancedDataset
 
 def denormalize(tensor, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)):
     tensor = tensor.clone()

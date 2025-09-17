@@ -9,7 +9,7 @@ import torch
 import numpy as np
 from pathlib import Path
 from tqdm import tqdm
-from Dataset.LoveDa import TiledAerialDataset, ForestBinaryTransform
+from Dataset.LoveDa_Dataloader import TiledAerialDataset, ForestBinaryTransform
 
 
 def count_pixels_in_dataset(dataset, dataset_name="Dataset", device='cpu'):
