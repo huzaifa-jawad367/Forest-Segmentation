@@ -49,3 +49,5 @@ segformer_results/
 # Temporary files
 *.tmp
 *.temp
+
+kaggle.json
