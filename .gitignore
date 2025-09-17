@@ -1,0 +1,51 @@
+# Dataset directories
+DeepGlobe/
+LoveDa/
+
+# Large files and archives
+*.zip
+*.tar.gz
+*.tar.bz2
+*.7z
+*.rar
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# PyTorch model files
+*.pth
+*.pt
+*.ckpt
+
+# Jupyter Notebook files
+*.ipynb
+.ipynb_checkpoints/
+
+# Environment files
+.env
+.venv
+env/
+venv/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Training outputs
+results/
+logs/
+checkpoints/
+segformer_results/
+
+# Temporary files
+*.tmp
+*.temp
