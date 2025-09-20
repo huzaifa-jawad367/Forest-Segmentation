@@ -110,9 +110,15 @@ def compute_metrics(eval_pred):
     if hasattr(labels, 'cpu'):
         labels = labels.cpu().numpy()
     
-    # Get predicted classes
-    pred_classes = np.argmax(predictions, axis=1)
+    # # Get predicted classes
+    # pred_classes = np.argmax(predictions, axis=1)
     
+    # Check if predictions are already argmax results or raw logits
+    if len(predictions.shape) == 4:  # Raw logits: [batch, classes, height, width]
+        pred_classes = np.argmax(predictions, axis=1)  # [batch, height, width]
+    else:  # Already argmax results: [batch, height, width]
+        pred_classes = predictions
+
     # Flatten for metric computation
     pred_flat = pred_classes.flatten()
     labels_flat = labels.flatten()
