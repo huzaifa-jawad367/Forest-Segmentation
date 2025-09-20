@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 from tqdm import tqdm
 import time
+from torch.utils.tensorboard import SummaryWriter
 
 from Model.loss import FocalLoss2d
 from Model.metric import compute_metrics
@@ -21,15 +22,21 @@ class CustomTrainer:
     
     def __init__(self, model, train_dataset, val_dataset, device='cuda', 
                  batch_size=8, num_workers=4, learning_rate=5e-5, 
-                 weight_decay=0.01, num_epochs=50, save_dir="./custom_results"):
+                 weight_decay=0.01, num_epochs=50, save_dir="./custom_results",
+                 log_dir="./tensorboard_logs"):
         self.model = model.to(device)
         self.device = device
         self.batch_size = batch_size
         self.num_epochs = num_epochs
         self.save_dir = save_dir
+        self.log_dir = log_dir
         
         # Create save directory
         os.makedirs(save_dir, exist_ok=True)
+        
+        # Create TensorBoard writer
+        os.makedirs(log_dir, exist_ok=True)
+        self.writer = SummaryWriter(log_dir=log_dir)
         
         # Loss function
         self.loss_fn = FocalLoss2d(gamma=2, weight=None)
@@ -136,9 +143,18 @@ class CustomTrainer:
                 'avg_loss': f'{total_loss/num_batches:.4f}',
                 'lr': f'{self.optimizer.param_groups[0]["lr"]:.2e}'
             })
+            
+            # Log to TensorBoard every 50 batches
+            if batch_idx % 50 == 0:
+                global_step = epoch * len(self.train_loader) + batch_idx
+                self.writer.add_scalar('Train/Loss', loss.item(), global_step)
+                self.writer.add_scalar('Train/Learning_Rate', self.optimizer.param_groups[0]['lr'], global_step)
         
         avg_loss = total_loss / max(num_batches, 1)
         self.train_losses.append(avg_loss)
+        
+        # Log epoch average loss
+        self.writer.add_scalar('Train/Epoch_Loss', avg_loss, epoch)
         
         return avg_loss
     
@@ -189,6 +205,9 @@ class CustomTrainer:
         avg_loss = total_loss / max(num_batches, 1)
         self.val_losses.append(avg_loss)
         
+        # Log validation loss to TensorBoard
+        self.writer.add_scalar('Val/Epoch_Loss', avg_loss, epoch)
+        
         # Compute metrics
         if all_predictions and all_labels:
             all_predictions = torch.cat(all_predictions, dim=0)
@@ -197,6 +216,10 @@ class CustomTrainer:
             # Compute metrics
             metrics = compute_metrics((all_predictions, all_labels))
             self.val_metrics.append(metrics)
+            
+            # Log metrics to TensorBoard
+            for metric_name, metric_value in metrics.items():
+                self.writer.add_scalar(f'Val/{metric_name}', metric_value, epoch)
             
             return avg_loss, metrics
         else:
@@ -233,6 +256,46 @@ class CustomTrainer:
         print(f"Device: {self.device}")
         print("="*60)
         
+        # Debug: Print dataloader and batch information
+        print("\n=== DATALOADER DEBUG INFO ===")
+        print(f"Train dataloader length: {len(self.train_loader)}")
+        print(f"Val dataloader length: {len(self.val_loader)}")
+        
+        # Test a few batches from train dataloader
+        print("\n--- Training Dataloader Batch Shapes ---")
+        for i, batch in enumerate(self.train_loader):
+            if i >= 3:  # Only check first 3 batches
+                break
+            print(f"Batch {i}:")
+            print(f"  Keys: {list(batch.keys())}")
+            print(f"  pixel_values shape: {batch['pixel_values'].shape}")
+            print(f"  labels shape: {batch['labels'].shape}")
+            print(f"  pixel_values dtype: {batch['pixel_values'].dtype}")
+            print(f"  labels dtype: {batch['labels'].dtype}")
+            if batch['pixel_values'].size(0) == 0:
+                print(f"  WARNING: Empty batch detected!")
+            print()
+        
+        # Test a few batches from val dataloader
+        print("--- Validation Dataloader Batch Shapes ---")
+        for i, batch in enumerate(self.val_loader):
+            if i >= 3:  # Only check first 3 batches
+                break
+            print(f"Batch {i}:")
+            print(f"  Keys: {list(batch.keys())}")
+            print(f"  pixel_values shape: {batch['pixel_values'].shape}")
+            print(f"  labels shape: {batch['labels'].shape}")
+            print(f"  pixel_values dtype: {batch['pixel_values'].dtype}")
+            print(f"  labels dtype: {batch['labels'].dtype}")
+            if batch['pixel_values'].size(0) == 0:
+                print(f"  WARNING: Empty batch detected!")
+            print()
+        
+        print("=== END DATALOADER DEBUG INFO ===\n")
+        
+        # Log model architecture to TensorBoard
+        self.log_model_architecture()
+        
         best_val_loss = float('inf')
         
         for epoch in range(self.num_epochs):
@@ -265,6 +328,10 @@ class CustomTrainer:
             if (epoch + 1) % 5 == 0 or is_best:  # Save every 5 epochs or if best
                 self.save_checkpoint(epoch, is_best)
             
+            # Log sample images every 5 epochs
+            if (epoch + 1) % 5 == 0:
+                self.log_sample_images(epoch)
+            
             print("-" * 60)
         
         print("Training completed!")
@@ -281,3 +348,46 @@ class CustomTrainer:
         }, final_path)
         
         print(f"Final model saved to: {final_path}")
+        print(f"TensorBoard logs saved to: {self.log_dir}")
+        print(f"To view TensorBoard, run: tensorboard --logdir={self.log_dir}")
+        
+        # Close TensorBoard writer
+        self.writer.close()
+    
+    def log_model_architecture(self):
+        """Log model architecture to TensorBoard."""
+        # Create a dummy input to trace the model
+        dummy_input = torch.randn(1, 3, 512, 512).to(self.device)
+        
+        try:
+            # Log model graph
+            self.writer.add_graph(self.model, dummy_input)
+            print("Model architecture logged to TensorBoard")
+        except Exception as e:
+            print(f"Could not log model architecture: {e}")
+    
+    def log_sample_images(self, epoch, num_samples=4):
+        """Log sample images, predictions, and masks to TensorBoard."""
+        self.model.eval()
+        
+        with torch.no_grad():
+            # Get a batch from validation loader
+            for batch in self.val_loader:
+                if batch['pixel_values'].size(0) == 0:
+                    continue
+                    
+                # Take only the first few samples
+                pixel_values = batch['pixel_values'][:num_samples].to(self.device)
+                labels = batch['labels'][:num_samples].to(self.device)
+                
+                # Get predictions
+                outputs = self.model(pixel_values)
+                logits = outputs[0] if isinstance(outputs, tuple) else outputs
+                predictions = torch.argmax(logits, dim=1)
+                
+                # Log images
+                self.writer.add_images('Sample/Input_Images', pixel_values, epoch)
+                self.writer.add_images('Sample/Ground_Truth', labels.unsqueeze(1).float(), epoch)
+                self.writer.add_images('Sample/Predictions', predictions.unsqueeze(1).float(), epoch)
+                
+                break  # Only log one batch
