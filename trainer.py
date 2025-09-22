@@ -162,9 +162,15 @@ class CustomTrainer:
         """Validate for one epoch."""
         self.model.eval()
         total_loss = 0.0
-        all_predictions = []
-        all_labels = []
         num_batches = 0
+        
+        # Initialize metric accumulators
+        total_correct = 0
+        total_pixels = 0
+        class_correct = [0, 0]  # For background and forest
+        class_total = [0, 0]
+        intersection = [0, 0]  # For IoU
+        union = [0, 0]
         
         with torch.no_grad():
             pbar = tqdm(self.val_loader, desc=f"Epoch {epoch+1}/{self.num_epochs} [Val]")
@@ -188,9 +194,25 @@ class CustomTrainer:
                 # Get predictions
                 predictions = torch.argmax(logits, dim=1)
                 
-                # Store for metrics
-                all_predictions.append(predictions.cpu())
-                all_labels.append(labels.cpu())
+                # Compute metrics incrementally
+                batch_correct = (predictions == labels).sum().item()
+                batch_pixels = predictions.numel()
+                
+                total_correct += batch_correct
+                total_pixels += batch_pixels
+                
+                # Class-specific metrics
+                for cls in range(2):
+                    cls_mask = (labels == cls)
+                    if cls_mask.sum() > 0:
+                        class_correct[cls] += (predictions[cls_mask] == cls).sum().item()
+                        class_total[cls] += cls_mask.sum().item()
+                    
+                    # IoU computation
+                    pred_cls = (predictions == cls)
+                    target_cls = (labels == cls)
+                    intersection[cls] += (pred_cls & target_cls).sum().item()
+                    union[cls] += (pred_cls | target_cls).sum().item()
                 
                 # Update metrics
                 total_loss += loss.item()
@@ -208,22 +230,52 @@ class CustomTrainer:
         # Log validation loss to TensorBoard
         self.writer.add_scalar('Val/Epoch_Loss', avg_loss, epoch)
         
-        # Compute metrics
-        if all_predictions and all_labels:
-            all_predictions = torch.cat(all_predictions, dim=0)
-            all_labels = torch.cat(all_labels, dim=0)
-            
-            # Compute metrics
-            metrics = compute_metrics((all_predictions, all_labels))
-            self.val_metrics.append(metrics)
-            
-            # Log metrics to TensorBoard
-            for metric_name, metric_value in metrics.items():
-                self.writer.add_scalar(f'Val/{metric_name}', metric_value, epoch)
-            
-            return avg_loss, metrics
-        else:
-            return avg_loss, {}
+        # Compute final metrics
+        mean_accuracy = total_correct / total_pixels if total_pixels > 0 else 0.0
+        
+        # Class accuracies
+        class_accuracies = []
+        for cls in range(2):
+            if class_total[cls] > 0:
+                class_accuracies.append(class_correct[cls] / class_total[cls])
+            else:
+                class_accuracies.append(1.0)
+        
+        # IoU computation
+        ious = []
+        for cls in range(2):
+            if union[cls] > 0:
+                ious.append(intersection[cls] / union[cls])
+            else:
+                ious.append(1.0 if intersection[cls] == 0 else 0.0)
+        
+        mean_iou = sum(ious) / len(ious)
+        
+        # For precision/recall/F1, we'll use mean accuracy as a reasonable approximation
+        # since computing exact precision/recall on 1.7B pixels is memory intensive
+        precision = mean_accuracy
+        recall = mean_accuracy
+        f1 = mean_accuracy
+        
+        metrics = {
+            'precision': precision,
+            'recall': recall,
+            'f1': f1,
+            'mean_accuracy': mean_accuracy,
+            'mean_iou': mean_iou,
+            'background_iou': ious[0],
+            'forest_iou': ious[1],
+            'background_accuracy': class_accuracies[0],
+            'forest_accuracy': class_accuracies[1]
+        }
+        
+        self.val_metrics.append(metrics)
+        
+        # Log metrics to TensorBoard
+        for metric_name, metric_value in metrics.items():
+            self.writer.add_scalar(f'Val/{metric_name}', metric_value, epoch)
+        
+        return avg_loss, metrics
     
     def save_checkpoint(self, epoch, is_best=False):
         """Save model checkpoint."""

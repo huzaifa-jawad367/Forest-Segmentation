@@ -263,7 +263,9 @@ class CustomSegformer(nn.Module):
         config = SegformerConfig.from_pretrained(base_model)
         config.num_labels = num_classes
         config.num_channels = input_channels
-        self.encoder = SegformerModel(config)
+        
+        # Load pretrained encoder
+        self.encoder = SegformerModel.from_pretrained(base_model, config=config)
         self.decoder = SegformerDecodeHead(config)
         self.softmax = nn.Softmax(dim=1)
 
