@@ -51,3 +51,7 @@ segformer_results/
 *.temp
 
 kaggle.json
+Data/
+tensorboard_logs/
+tensorboard_logs_custom/
+tensorboard/
