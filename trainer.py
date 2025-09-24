@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 from tqdm import tqdm
 import time
+from datetime import datetime
 from torch.utils.tensorboard import SummaryWriter
 
 from Model.loss import FocalLoss2d
@@ -28,15 +29,12 @@ class CustomTrainer:
         self.device = device
         self.batch_size = batch_size
         self.num_epochs = num_epochs
-        self.save_dir = save_dir
-        self.log_dir = log_dir
         
-        # Create save directory
-        os.makedirs(save_dir, exist_ok=True)
+        # Create organized directory structure
+        self.save_dir, self.log_dir = self._create_directories(model, save_dir, log_dir, learning_rate, batch_size, num_epochs, weight_decay)
         
         # Create TensorBoard writer
-        os.makedirs(log_dir, exist_ok=True)
-        self.writer = SummaryWriter(log_dir=log_dir)
+        self.writer = SummaryWriter(log_dir=self.log_dir)
         
         # Loss function
         self.loss_fn = FocalLoss2d(gamma=2, weight=None)
@@ -76,6 +74,103 @@ class CustomTrainer:
         self.train_losses = []
         self.val_losses = []
         self.val_metrics = []
+    
+    def _create_directories(self, model, base_save_dir, base_log_dir, learning_rate, batch_size, num_epochs, weight_decay):
+        """Create organized directory structure with datetime and model info."""
+        # Get current datetime
+        now = datetime.now()
+        timestamp = now.strftime("%Y%m%d_%H%M%S")
+        
+        # Determine model architecture - only use the actual model class name
+        model_name = model.__class__.__name__
+        if model_name == "Segforest":
+            model_arch = "segforest"
+        elif model_name == "CustomSegformer":
+            model_arch = "segformer"
+        else:
+            model_arch = model_name.lower()
+        
+        # Get model configuration info (backbone size)
+        backbone_info = ""
+        if hasattr(model, 'encoder') and hasattr(model.encoder, 'config'):
+            if hasattr(model.encoder.config, 'hidden_sizes'):
+                # Get the largest hidden size (usually the backbone indicator)
+                max_hidden = max(model.encoder.config.hidden_sizes)
+                if max_hidden == 64:
+                    backbone_info = "b0"
+                elif max_hidden == 128:
+                    backbone_info = "b1"
+                elif max_hidden == 320:
+                    backbone_info = "b2"
+                elif max_hidden == 512:
+                    backbone_info = "b3"
+                elif max_hidden == 768:
+                    backbone_info = "b4"
+                elif max_hidden == 1024:
+                    backbone_info = "b5"
+        
+        # Create directory names - clean and simple
+        if backbone_info:
+            dir_name = f"{timestamp}_{model_arch}_{backbone_info}_bs{batch_size}_lr{learning_rate:.0e}_ep{num_epochs}"
+        else:
+            dir_name = f"{timestamp}_{model_arch}_bs{batch_size}_lr{learning_rate:.0e}_ep{num_epochs}"
+        
+        # Create full paths
+        save_dir = os.path.join(base_save_dir, dir_name)
+        log_dir = os.path.join(base_log_dir, dir_name)
+        
+        # Create directories
+        os.makedirs(save_dir, exist_ok=True)
+        os.makedirs(log_dir, exist_ok=True)
+        
+        print(f"Created directories:")
+        print(f"  Save directory: {save_dir}")
+        print(f"  Log directory: {log_dir}")
+        
+        # Save training configuration
+        self._save_training_config(save_dir, model, learning_rate, batch_size, num_epochs, weight_decay)
+        
+        return save_dir, log_dir
+    
+    def _save_training_config(self, save_dir, model, learning_rate, batch_size, num_epochs, weight_decay):
+        """Save training configuration to a text file."""
+        config_path = os.path.join(save_dir, "training_config.txt")
+        
+        with open(config_path, 'w') as f:
+            f.write("Training Configuration\n")
+            f.write("=" * 50 + "\n\n")
+            f.write(f"Model Architecture: {model.__class__.__name__}\n")
+            f.write(f"Learning Rate: {learning_rate}\n")
+            f.write(f"Batch Size: {batch_size}\n")
+            f.write(f"Number of Epochs: {num_epochs}\n")
+            f.write(f"Weight Decay: {weight_decay}\n")
+            f.write(f"Device: {self.device}\n")
+            f.write(f"Training Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+            
+            # Model info
+            total_params = sum(p.numel() for p in model.parameters())
+            trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+            f.write(f"Total Parameters: {total_params:,}\n")
+            f.write(f"Trainable Parameters: {trainable_params:,}\n")
+            f.write(f"Frozen Parameters: {total_params - trainable_params:,}\n\n")
+            
+            # Model architecture details
+            if hasattr(model, 'encoder'):
+                f.write("Encoder Details:\n")
+                f.write(f"  Type: {model.encoder.__class__.__name__}\n")
+                if hasattr(model.encoder, 'config'):
+                    config = model.encoder.config
+                    f.write(f"  Model Type: {getattr(config, 'model_type', 'Unknown')}\n")
+                    f.write(f"  Hidden Sizes: {getattr(config, 'hidden_sizes', 'Unknown')}\n")
+                    f.write(f"  Num Labels: {getattr(config, 'num_labels', 'Unknown')}\n")
+            
+            if hasattr(model, 'decoder'):
+                f.write(f"Decoder Type: {model.decoder.__class__.__name__}\n")
+            
+            if hasattr(model, 'mff_blocks'):
+                f.write(f"MFF Blocks: {model.mff_blocks.__class__.__name__}\n")
+        
+        print(f"Training configuration saved to: {config_path}")
         
     def collate_fn(self, batch):
         """Custom collate function for segmentation data."""
@@ -124,7 +219,13 @@ class CustomTrainer:
             
             # Forward pass
             outputs = self.model(pixel_values)
-            logits = outputs[0] if isinstance(outputs, tuple) else outputs
+            # Handle different output formats
+            if isinstance(outputs, list):
+                logits = outputs[0]  # Use first output for Segforest
+            elif isinstance(outputs, tuple):
+                logits = outputs[0]
+            else:
+                logits = outputs
             
             # Compute loss
             loss = self.loss_fn(logits, labels)
@@ -186,7 +287,13 @@ class CustomTrainer:
                 
                 # Forward pass
                 outputs = self.model(pixel_values)
-                logits = outputs[0] if isinstance(outputs, tuple) else outputs
+                # Handle different output formats
+                if isinstance(outputs, list):
+                    logits = outputs[0]  # Use first output for Segforest
+                elif isinstance(outputs, tuple):
+                    logits = outputs[0]
+                else:
+                    logits = outputs
                 
                 # Compute loss
                 loss = self.loss_fn(logits, labels)
@@ -434,7 +541,13 @@ class CustomTrainer:
                 
                 # Get predictions
                 outputs = self.model(pixel_values)
-                logits = outputs[0] if isinstance(outputs, tuple) else outputs
+                # Handle different output formats
+                if isinstance(outputs, list):
+                    logits = outputs[0]  # Use first output for Segforest
+                elif isinstance(outputs, tuple):
+                    logits = outputs[0]
+                else:
+                    logits = outputs
                 predictions = torch.argmax(logits, dim=1)
                 
                 # Log images

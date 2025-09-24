@@ -11,7 +11,7 @@ import os
 from pathlib import Path
 
 # Import our custom components
-# from Model.Segforest.Segforest import Segforest
+from Model.Segforest.Segforest import Segforest
 # CustomSegformer
 from Model.model import CustomSegformer
 from Model.loss import FocalLoss2d, cross_entropy
@@ -92,11 +92,21 @@ def main():
     train_dataset, val_dataset = create_datasets()
     
     # Create model
-    print("Creating Custom Segformer model...")
+    print("Creating Segforest model with Segformer B5 backbone...")
+    # model = Segforest(
+    #     img_size=512,  # Input image size
+    #     in_chans=3,    # RGB channels
+    #     encoder_embed_dims=[64, 128, 320, 512],  # B5 encoder dimensions
+    #     mff_out_channels=[64, 128, 320],  # MFF block output channels
+    #     decoder_inner_channels=64,  # Decoder inner channels
+    #     num_classes=2,  # Binary: forest/background
+    #     pretrained_model_name="nvidia/mit-b5",  # Use B5 backbone
+    #     freeze_encoder=True  # Freeze encoder weights
+    # )
     model = CustomSegformer(
         input_channels=3,  # RGB
         num_classes=2,     # Binary: forest/background
-        base_model='nvidia/mit-b4'
+        base_model='nvidia/mit-b5'
     )
     # model.to(device)
     
