@@ -256,16 +256,31 @@ if __name__ == '__main__':
     
 from transformers import SegformerForSemanticSegmentation, SegformerModel, SegformerDecodeHead
 from transformers.models.segformer.configuration_segformer import SegformerConfig
+from torchvision.ops import SqueezeExcitation
 
 class CustomSegformer(nn.Module):
-    def __init__(self, input_channels, num_classes, base_model = 'nvidia/mit-b0'):
+    def __init__(self, input_channels, num_classes, base_model = 'nvidia/mit-b0', se_ratio = 16):
         super().__init__()
         config = SegformerConfig.from_pretrained(base_model)
         config.num_labels = num_classes
         config.num_channels = input_channels
+
+        # SE block at input level
+        self.input_se = SqueezeExcitation(
+            input_channels, 
+            squeeze_channels=max(1, input_channels // se_ratio)
+        )
+        self.input_bn = nn.BatchNorm2d(input_channels)
         
         # Load pretrained encoder
         self.encoder = SegformerModel.from_pretrained(base_model, config=config)
+        
+        # Freeze encoder weights
+        for param in self.encoder.parameters():
+            param.requires_grad = False
+        
+        # print(f"Encoder frozen: {sum(p.requires_grad for p in self.encoder.parameters())} trainable parameters")
+        
         self.decoder = SegformerDecodeHead(config)
         self.softmax = nn.Softmax(dim=1)
 
@@ -274,6 +289,15 @@ class CustomSegformer(nn.Module):
                                output_attentions = False,
                                output_hidden_states = True,
                                return_dict = True)
+        
+        # # Debug: Print encoder output shapes
+        # print(f"Encoder outputs type: {type(outputs)}")
+        # print(f"Encoder outputs keys: {outputs.keys() if hasattr(outputs, 'keys') else 'No keys'}")
+        # print(f"Hidden states type: {type(outputs.hidden_states)}")
+        # print(f"Number of hidden states: {len(outputs.hidden_states)}")
+        
+        # for i, hidden_state in enumerate(outputs.hidden_states):
+        #     print(f"Hidden state {i} shape: {hidden_state.shape}")
         
         logits = self.decoder(outputs.hidden_states)
         x = nn.functional.interpolate(logits, size=(x_in.shape[2], x_in.shape[3]), mode='bilinear', align_corners=False)
