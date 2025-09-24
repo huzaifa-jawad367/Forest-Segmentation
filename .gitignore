@@ -55,3 +55,4 @@ Data/
 tensorboard_logs/
 tensorboard_logs_custom/
 tensorboard/
+custom_results/
