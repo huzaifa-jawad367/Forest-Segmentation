@@ -13,7 +13,7 @@ class Segforest(nn.Module):
                  mff_out_channels=[64, 128, 320],
                  decoder_inner_channels=64,
                  num_classes=2,  # Changed to 2 for binary segmentation
-                 pretrained_model_name="nvidia/mit-b4",  # Pretrained Segformer model
+                 pretrained_model_name="nvidia/mit-b5",  # Pretrained Segformer model
                  freeze_encoder=False):  # Option to freeze encoder weights
         super().__init__()
         
@@ -69,14 +69,25 @@ class Segforest(nn.Module):
         hidden_states = encoder_outputs.hidden_states  # [TB1, TB2, TB3, TB4]
         
         # Convert to the expected format for MFF blocks
-        # Reshape from (B, N, C) to (B, C, H, W) format
+        # Segformer outputs are already in (B, C, H, W) format, no reshaping needed
         reshaped_outputs = []
         for i, hidden_state in enumerate(hidden_states):
-            B, N, C = hidden_state.shape
-            # Calculate H, W based on the stage (each stage has different resolution)
-            H = W = int(N ** 0.5)  # Assuming square feature maps
-            reshaped = hidden_state.reshape(B, H, W, C).permute(0, 3, 1, 2)
-            reshaped_outputs.append(reshaped)
+            # Debug: print the actual shape
+            # print(f"Hidden state {i} shape: {hidden_state.shape}")
+            
+            # Check if it's already in (B, C, H, W) format
+            if len(hidden_state.shape) == 4:
+                # Already in correct format
+                reshaped_outputs.append(hidden_state)
+            elif len(hidden_state.shape) == 3:
+                # Need to reshape from (B, N, C) to (B, C, H, W)
+                B, N, C = hidden_state.shape
+                # Calculate H, W based on the stage (each stage has different resolution)
+                H = W = int(N ** 0.5)  # Assuming square feature maps
+                reshaped = hidden_state.reshape(B, H, W, C).permute(0, 3, 1, 2)
+                reshaped_outputs.append(reshaped)
+            else:
+                raise ValueError(f"Unexpected hidden state shape: {hidden_state.shape}")
         
         mff_outputs = self.mff_blocks(reshaped_outputs)  # [MFF_1, MFF_2, MFF_3]
         decoder_outputs = self.decoder(mff_outputs, reshaped_outputs)  # [out1, out2, out3]
